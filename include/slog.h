@@ -4,12 +4,15 @@
 #include <stdint.h>
 #include <time.h>
 
-#define VERSION 1
+#define SLOG_VERSION 1
 
 #define SLOG_OK 0
 #define SLOG_EMPTY 1
-#define SLOG_NON_EMPTY 2
-#define SLOG_FAIL 3
+#define SLOG_ERR_NON_EMPTY 2
+#define SLOG_ERR_FAIL 3
+#define SLOG_ERR_NO_MEM 4
+#define SLOG_ERR_UNSUPPORTED_VERSION 5
+#define SLOG_ERR_ENUM_NOT_HANDLED 6
 
 typedef enum {
   COUNTER = 0,
@@ -39,7 +42,7 @@ typedef struct {
   slog_sample_interval_t sample_interval;
   slog_metric_type_t metric_type;
   slog_sample_size_t sample_size_bits;
-} header_t;
+} slog_header_t;
 
 typedef struct slog_t slog;
 
@@ -66,7 +69,7 @@ int slog_create(struct tm current, const char *base_dir, slog **result);
  *      - SLOG_NON_EMPTY - if base directory is not empty and already initialized
  *      - SLOG_FAIL - on any other failure
  */
-int slog_setup(header_t *header, slog *handle);
+int slog_setup(struct tm current, slog_header_t *header, slog *handle);
 
 /**
  * @brief Append new value to the database. Recalculate monthly and yearly aggregates. Caller should ensure this function is called periodically according to the "slog_sample_interval_t" configuration.
@@ -77,7 +80,7 @@ int slog_setup(header_t *header, slog *handle);
  *      - SLOG_OK - if setup is success
  *      - SLOG_FAIL - on any other failure
  */
-int slog_append(void value, slog *handle);
+int slog_append(void *value, slog *handle);
 
 /**
  * @brief Read values from the database.

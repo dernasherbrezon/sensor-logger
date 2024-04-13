@@ -31,15 +31,11 @@ Sensor logger is storing the data on the file system in the binary files. Each m
   /meta
   /2024/
     /data
-    /2024.01/
-      /data
-      /2024.01.01/
-        /data
-      /2024.01.02/
-        /data
-    /2024.02/
-      /data
-      /2024.02.01/
+    /2024.01
+    /2024.01.01
+    /2024.01.02
+    /2024.02
+    /2024.02.01
 ```
 
 Where ```meta``` file is binary and contains database configuration.
