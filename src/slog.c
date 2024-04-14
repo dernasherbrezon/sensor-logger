@@ -19,10 +19,22 @@ static const uint16_t points_per_interval[] = {
     [TEN_MINUTES] = 144
 };
 
-static const uint16_t minutes_per_point[] = {
+static const uint16_t minutes_per_point_day[] = {
     [ONE_MINUTE] = 1,
     [FIVE_MINUTES] = 5,
     [TEN_MINUTES] = 10
+};
+
+static const uint16_t minutes_per_point_month[] = {
+    [ONE_MINUTE] = 1800,
+    [FIVE_MINUTES] = 9000,
+    [TEN_MINUTES] = 18000
+};
+
+static const uint32_t minutes_per_point_year[] = {
+    [ONE_MINUTE] = 21900,
+    [FIVE_MINUTES] = 109500,
+    [TEN_MINUTES] = 219000
 };
 
 static const uint8_t sample_size_to_bytes[] = {
@@ -134,12 +146,12 @@ int slog_append_internal(slog_partition_t partition, uint8_t presence, void *val
 }
 
 int slog_resume_day(struct tm current, slog *handle) {
-  size_t day_length = strlen(handle->base_dir) + 1 + 10 + 1;
-  char *filename = malloc(sizeof(char) * day_length);
+  size_t filename_length = strlen(handle->base_dir) + 1 + 10 + 1;
+  char *filename = malloc(sizeof(char) * filename_length);
   if (filename == NULL) {
     return SLOG_ERR_NO_MEM;
   }
-  sprintf(filename, "%s/%4d.%2d.%2d", handle->base_dir, current.tm_year, current.tm_mon, current.tm_mday);
+  sprintf(filename, "%s/%4d.%2d.%2d", handle->base_dir, (current.tm_year + 1900), (current.tm_mon + 1), current.tm_mday);
   handle->day.file = fopen(filename, "a+");
   if (handle->day.file == NULL) {
     free(filename);
@@ -153,7 +165,7 @@ int slog_resume_day(struct tm current, slog *handle) {
     fseek(handle->day.file, rounded_file_size, SEEK_SET);
   }
   handle->day.current_sample = rounded_file_size / bytes_per_sample;
-  uint16_t expected_sample = ((current.tm_hour * 60 + current.tm_min) / minutes_per_point[handle->header->sample_interval]);
+  uint16_t expected_sample = ((current.tm_hour * 60 + current.tm_min) / minutes_per_point_day[handle->header->sample_interval]);
   long expected_file_size = bytes_per_sample * expected_sample;
   if (expected_file_size < rounded_file_size) { //some kind overflow? override
     fseek(handle->day.file, expected_file_size, SEEK_SET);
@@ -164,6 +176,76 @@ int slog_resume_day(struct tm current, slog *handle) {
       slog_append_internal(DAY, 0x00, &empty_value, handle);
     }
   }
+  return SLOG_OK;
+}
+
+int slog_resume_month(struct tm current, slog *handle) {
+  size_t filename_length = strlen(handle->base_dir) + 1 + 7 + 1;
+  char *filename = malloc(sizeof(char) * filename_length);
+  if (filename == NULL) {
+    return SLOG_ERR_NO_MEM;
+  }
+  sprintf(filename, "%s/%4d.%2d", handle->base_dir, (current.tm_year + 1900), (current.tm_mon + 1));
+  handle->month.file = fopen(filename, "a+");
+  if (handle->month.file == NULL) {
+    free(filename);
+    return SLOG_ERR_FAIL;
+  }
+  free(filename);
+  long file_size = ftell(handle->month.file);
+  uint16_t bytes_per_sample = slog_bytes_per_sample(MONTH, handle->header);
+  long rounded_file_size = (file_size / bytes_per_sample) * bytes_per_sample;
+  if (rounded_file_size != file_size) { // partial write
+    fseek(handle->month.file, rounded_file_size, SEEK_SET);
+  }
+  handle->month.current_sample = rounded_file_size / bytes_per_sample;
+  uint16_t expected_sample = ((current.tm_mday * 24 * 60 + current.tm_hour * 60 + current.tm_min) / minutes_per_point_month[handle->header->sample_interval]);
+  long expected_file_size = bytes_per_sample * expected_sample;
+  if (expected_file_size < rounded_file_size) { //some kind overflow? override
+    fseek(handle->month.file, expected_file_size, SEEK_SET);
+  } else {
+    // append empty points up till current timestamp
+    uint64_t empty_value = 0x00;
+    while (handle->month.current_sample <= expected_sample) {
+      slog_append_internal(MONTH, 0x00, &empty_value, handle);
+    }
+  }
+  //FIXME somehow drop all new counter values until
+  return SLOG_OK;
+}
+
+int slog_resume_year(struct tm current, slog *handle) {
+  size_t filename_length = strlen(handle->base_dir) + 1 + 4 + 1;
+  char *filename = malloc(sizeof(char) * filename_length);
+  if (filename == NULL) {
+    return SLOG_ERR_NO_MEM;
+  }
+  sprintf(filename, "%s/%4d", handle->base_dir, (current.tm_year + 1900));
+  handle->year.file = fopen(filename, "a+");
+  if (handle->year.file == NULL) {
+    free(filename);
+    return SLOG_ERR_FAIL;
+  }
+  free(filename);
+  long file_size = ftell(handle->year.file);
+  uint16_t bytes_per_sample = slog_bytes_per_sample(YEAR, handle->header);
+  long rounded_file_size = (file_size / bytes_per_sample) * bytes_per_sample;
+  if (rounded_file_size != file_size) { // partial write
+    fseek(handle->year.file, rounded_file_size, SEEK_SET);
+  }
+  handle->year.current_sample = rounded_file_size / bytes_per_sample;
+  uint32_t expected_sample = ((current.tm_yday * 24 * 60 + current.tm_hour * 60 + current.tm_min) / minutes_per_point_year[handle->header->sample_interval]);
+  long expected_file_size = bytes_per_sample * expected_sample;
+  if (expected_file_size < rounded_file_size) { //some kind overflow? override
+    fseek(handle->year.file, expected_file_size, SEEK_SET);
+  } else {
+    // append empty points up till current timestamp
+    uint64_t empty_value = 0x00;
+    while (handle->year.current_sample <= expected_sample) {
+      slog_append_internal(YEAR, 0x00, &empty_value, handle);
+    }
+  }
+  //FIXME somehow drop all new counter values until
   return SLOG_OK;
 }
 
@@ -201,15 +283,30 @@ int slog_create(struct tm current, const char *base_dir, slog **output) {
     slog_destroy(result);
     return code;
   }
+  code = slog_resume_month(current, result);
+  if (code != SLOG_OK) {
+    slog_destroy(result);
+    return code;
+  }
+  code = slog_resume_year(current, result);
+  if (code != SLOG_OK) {
+    slog_destroy(result);
+    return code;
+  }
 
   *output = result;
   return SLOG_OK;
 }
 
 int slog_setup(struct tm current, slog_header_t *header, slog *handle) {
+  if (handle->header != NULL) {
+    return SLOG_ERR_NON_EMPTY;
+  }
   ERROR_CHECK(slog_write_header(handle->meta_filename, header));
   handle->header = header;
   ERROR_CHECK(slog_resume_day(current, handle));
+  ERROR_CHECK(slog_resume_month(current, handle));
+  ERROR_CHECK(slog_resume_year(current, handle));
   return SLOG_OK;
 }
 
@@ -223,12 +320,36 @@ int slog_append(void *value, slog *handle) {
   return SLOG_OK;
 }
 
+int slog_read_day(struct tm from, struct tm to, void **result, uint8_t *result_length, slog *handle) {
+
+}
+
+int slog_read_month(struct tm from, struct tm to, void **result, uint8_t *result_length, slog *handle) {
+
+}
+
+int slog_read_year(struct tm from, struct tm to, void **result, uint8_t *result_length, slog *handle) {
+
+}
+
+
 int slog_read(slog_partition_t partition, struct tm from, struct tm to, void **result, uint8_t *result_length, slog *handle) {
   if (handle->header == NULL) {
     return SLOG_EMPTY;
   }
-  //FIXME implement
-  return SLOG_OK;
+  switch (partition) {
+    case DAY: {
+      return slog_read_day(from, to, result, result_length, handle);
+    }
+    case MONTH: {
+      return slog_read_month(from, to, result, result_length, handle);
+    }
+    case YEAR: {
+      return slog_read_year(from, to, result, result_length, handle);
+    }
+    default:
+      return SLOG_ERR_ENUM_NOT_HANDLED;
+  }
 }
 
 void slog_destroy(slog *handle) {
@@ -243,6 +364,12 @@ void slog_destroy(slog *handle) {
   }
   if (handle->day.file != NULL) {
     fclose(handle->day.file);
+  }
+  if (handle->month.file != NULL) {
+    fclose(handle->month.file);
+  }
+  if (handle->year.file != NULL) {
+    fclose(handle->year.file);
   }
   free(handle);
 }
